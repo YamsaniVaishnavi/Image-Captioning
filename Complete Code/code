@@ -1,0 +1,533 @@
+!pip install transformers
+from transformers import VisionEncoderDecoderModel,ViTFeatureExtractor,AutoTokenizer
+import torch
+from PIL import Image
+
+model = VisionEncoderDecoderModel.from_pretrained('nlpconnect/vit-gpt2-image-captioning')
+feature_extractor=ViTFeatureExtractor.from_pretrained("nlpconnect/vit-gpt2-image-captioning")
+tokenizer=AutoTokenizer.from_pretrained("nlpconnect/vit-gpt2-image-captioning")
+  device=torch.device("cuda" if torch.cuda.is_available() else "cpu")
+model.to(device)
+  max_length = 16
+num_beams=4
+gen_kwargs={"max_length":max_length,"num_beams":num_beams}
+  def predict_step(image_paths):
+  images=[]
+  for image_path in image_paths:
+    i_image=Image.open(image_path)
+    if i_image.mode !="RGB":
+      i_image=i_image.convert(mode ="RGB")
+    images.append(i_image)
+
+  pixel_values=feature_extractor(images=images, return_tensors='pt').pixel_values
+  pixel_values=pixel_values.to(device)
+  output_ids=model.generate(pixel_values,**gen_kwargs)
+  preds=tokenizer.batch_decode(output_ids,skip_special_tokens=True)
+  preds=[pred.strip() for pred in preds]
+  return preds
+a=predict_step(['review.jpg'])
+print('predicted Caption :',a)
+
+!pip install gTTS
+
+from gtts import gTTS
+from IPython.display import Audio
+b= " ".join(a)
+tts = gTTS(b)
+tts.save('1.wav')
+sound_file = '1.wav'
+Audio(sound_file, autoplay=True)
+  
+accuracy for vsion transformers
+!pip install -q kaggle
+from google.colab import files
+files.upload()
+  !mkdir ~/.kaggle
+  !cp kaggle.json ~/.kaggle/
+  ! chmod 600 ~/.kaggle/kaggle.json
+  ! kaggle datasets list
+  !kaggle datasets download -d nikhil7280/coco-image-caption
+  !unzip coco-image-caption.zip
+  ! pip install transformers
+import numpy as np
+import pandas as pd
+import seaborn as sns
+import matplotlib.pyplot as plt
+import tensorflow as tf
+
+import os
+import json
+import random
+from PIL import Image
+
+import warnings
+warnings.filterwarnings("ignore")
+trainval_image_dir = os.path.join('/content/train2014/train2014')
+trainval_captions_dir = os.path.join('/content/annotations_trainval2014/annotations')
+test_image_dir = os.path.join('/content/val2017/val2017')
+test_captions_dir = os.path.join('/content/annotations_trainval2017/annotations')
+trainval_captions_filepath = os.path.join(trainval_captions_dir, '/content/annotations_trainval2014/annotations/captions_train2014.json')
+test_captions_filepath = os.path.join(test_captions_dir, '/content/annotations_trainval2017/annotations/captions_val2017.json')
+all_filepaths = np.array([os.path.join(trainval_image_dir, f) for f in os.listdir(trainval_image_dir)])
+rand_indices = np.arange(len(all_filepaths))
+np.random.shuffle(rand_indices)
+
+split = int(len(all_filepaths)*0.8)
+
+train_filepaths, valid_filepaths = all_filepaths[rand_indices[:split]], all_filepaths[rand_indices[split:]]
+
+print(f"Train dataset size: {len(train_filepaths)}")
+print(f"Valid dataset size: {len(valid_filepaths)}")
+with open(trainval_captions_filepath, 'r') as f:
+    trainval_data = json.load(f)
+
+trainval_captions_df = pd.json_normalize(trainval_data, "annotations")
+trainval_captions_df["image_filepath"] = trainval_captions_df["image_id"].apply(
+    lambda x: os.path.join(trainval_image_dir, 'COCO_train2014_'+format(x, '012d')+'.jpg')
+)
+def preprocess_captions(image_captions_df):
+    """ Preprocessing the captions """
+
+    image_captions_df["preprocessed_caption"] = "[START] " + image_captions_df["caption"].str.lower().str.replace('[^\w\s]','') + " [END]"
+    return image_captions_df
+
+train_captions_df = trainval_captions_df[trainval_captions_df["image_filepath"].isin(train_filepaths)]
+train_captions_df = preprocess_captions(train_captions_df)
+valid_captions_df = trainval_captions_df[trainval_captions_df["image_filepath"].isin(valid_filepaths)]
+valid_captions_df = preprocess_captions(valid_captions_df)
+with open(test_captions_filepath, 'r') as f:
+    test_data = json.load(f)
+
+test_captions_df = pd.json_normalize(test_data, "annotations")
+test_captions_df["image_filepath"] = test_captions_df["image_id"].apply(
+    lambda x: os.path.join(test_image_dir, format(x, '012d')+'.jpg')
+)
+test_captions_df = preprocess_captions(test_captions_df)
+
+train_captions_df.head()
+import matplotlib.pyplot as plt
+from PIL import Image
+sample_data = test_captions_df.groupby("image_filepath")["caption"].agg(list).iloc[:5]
+
+fig, axes = plt.subplots(5, 2, figsize=(8,18))
+
+for ax_row, index, sample in zip(axes, sample_data.index, sample_data):
+    ax_row[0].imshow(Image.open(index))
+    ax_row[0].axis("off")
+    text_y = 0.9
+    for cap in sample:
+        ax_row[1].text(0, text_y, cap, fontsize=14)
+        text_y -= 0.2
+    ax_row[1].axis("off")
+n_samples = 1000
+
+train_image_stats_df = train_captions_df.loc[:n_samples, "image_filepath"].apply(lambda x: Image.open(x).size)
+train_image_stats_df = pd.DataFrame(train_image_stats_df.tolist(), index=train_image_stats_df.index)
+train_image_stats_df.describe()
+train_vocabulary = train_captions_df["preprocessed_caption"].str.split(" ").explode().value_counts()
+print(len(train_vocabulary[train_vocabulary>=25]))
+from tokenizers import BertWordPieceTokenizer
+
+# Initialize an empty BERT tokenizer
+tokenizer = BertWordPieceTokenizer(
+    #reserved_tokens=["[UNK]", "[START]", "[END]", "[PAD]"],
+    unk_token="[UNK]",
+    #trainer_params=None,
+    #vocab_size=8000,
+    clean_text=False,
+    lowercase=False,
+)
+
+tokenizer.train_from_iterator(
+    train_captions_df["preprocessed_caption"].tolist(),
+    vocab_size=4000,
+    special_tokens=["[PAD]", "[UNK]", "[START]", "[END]"]
+)
+from tokenizers import BertWordPieceTokenizer
+
+# Initialize an empty BERT tokenizer
+tokenizer = BertWordPieceTokenizer(
+    #reserved_tokens=["[UNK]", "[START]", "[END]", "[PAD]"],
+    unk_token="[UNK]",
+    #trainer_params=None,
+    #vocab_size=8000,
+    clean_text=False,
+    lowercase=False,
+)
+
+tokenizer.train_from_iterator(
+    train_captions_df["preprocessed_caption"].tolist(),
+    vocab_size=4000,
+    special_tokens=["[PAD]", "[UNK]", "[START]", "[END]"]
+)
+from tokenizers import BertWordPieceTokenizer
+
+# Initialize an empty BERT tokenizer
+tokenizer = BertWordPieceTokenizer(
+    #reserved_tokens=["[UNK]", "[START]", "[END]", "[PAD]"],
+    unk_token="[UNK]",
+    #trainer_params=None,
+    #vocab_size=8000,
+    clean_text=False,
+    lowercase=False,
+)
+
+tokenizer.train_from_iterator(
+    train_captions_df["preprocessed_caption"].tolist(),
+    vocab_size=4000,
+    special_tokens=["[PAD]", "[UNK]", "[START]", "[END]"]
+)
+example_captions = valid_captions_df["preprocessed_caption"].iloc[:10].tolist()
+example_tokenized_captions = tokenizer.encode_batch(example_captions)
+
+for caption, tokenized_cap in zip(example_captions, example_tokenized_captions):
+    print(f"{caption} -> {tokenized_cap.tokens}")
+vocab = tokenizer.get_vocab()
+
+for token in ["[UNK]", "[PAD]", "[START]", "[END]"]:
+    print(f"{token} -> {vocab[token]}")
+def generate_tokenizer(captions_df, n_vocab):
+    """ Generate the tokenizer with given captions """
+
+    # Define the tokenizer
+    tokenizer = BertWordPieceTokenizer(
+        unk_token="[UNK]",
+        clean_text=False,
+        lowercase=False,
+    )
+
+    # Train the tokenizer
+    tokenizer.train_from_iterator(
+        captions_df["preprocessed_caption"].tolist(),
+        vocab_size=n_vocab,
+        special_tokens=["[PAD]", "[UNK]", "[START]", "[END]"]
+    )
+
+    return tokenizer
+def generate_tf_dataset(image_captions_df, tokenizer=None, n_vocab=5000, pad_length=33, batch_size=100, training=False):
+    """ Generate the tf.data.Dataset"""
+
+    # If the tokenizer is not available, create one
+    if not tokenizer:
+        tokenizer = generate_tokenizer(image_captions_df, n_vocab)
+
+    # Get the caption IDs using the tokenizer
+    image_captions_df["caption_token_ids"] = [enc.ids for enc in tokenizer.encode_batch(image_captions_df["preprocessed_caption"])]
+
+    vocab = tokenizer.get_vocab()
+
+    # Add the padding to short sentences and truncate long ones
+    image_captions_df["caption_token_ids"] = image_captions_df["caption_token_ids"].apply(
+        lambda x: x+[vocab["[PAD]"]]*(pad_length - len(x) + 2) if pad_length + 2 >= len(x) else x[:pad_length + 1] + [x[-1]]
+    )
+
+    # Create a dataset with images and captions
+    dataset = tf.data.Dataset.from_tensor_slices({
+        "image_filepath": image_captions_df["image_filepath"],
+        "caption_token_ids": np.array(image_captions_df["caption_token_ids"].tolist())
+    })
+
+    # Each sample in our dataset consists of
+    # (image, caption token IDs, position IDs), (caption token IDs offset by 1)
+    dataset = dataset.map(
+        lambda x: (
+            (parse_image(x["image_filepath"], 224, 224), x["caption_token_ids"][:-1], tf.range(pad_length+1, dtype='float32')), x["caption_token_ids"]
+        )
+    )
+
+    # Shuffle and batch data in the training mode
+    if training:
+        dataset = dataset.shuffle(buffer_size=batch_size*10)
+
+    dataset = dataset.batch(batch_size)
+
+    return dataset, tokenizer
+n_vocab=4000
+batch_size=2
+sample_dataset, sample_tokenizer = generate_tf_dataset(train_captions_df, n_vocab=n_vocab, pad_length=10, batch_size=batch_size, training=True)
+for i in sample_dataset.take(1):
+    print(i)
+import tensorflow_hub as hub
+import tensorflow.keras.backend as K
+
+K.clear_session()
+
+image_input = tf.keras.layers.Input(shape=(224, 224, 3))
+image_encoder = hub.KerasLayer("https://tfhub.dev/sayakpaul/vit_s16_fe/1", trainable=False)
+image_features = image_encoder(image_input)
+print(f"Final representation shape: {image_features.shape}")
+class SelfAttentionLayer(tf.keras.layers.Layer):
+    """ Defines the computations in the self attention layer """
+
+    def _init_(self, d):
+        super(SelfAttentionLayer, self)._init_()
+        # Feature dimensionality of the output
+        self.d = d
+
+    def build(self, input_shape):
+        # Query weight matrix
+        self.Wq = self.add_weight(
+            shape=(input_shape[-1], self.d), initializer='glorot_uniform',
+            trainable=True, dtype='float32'
+        )
+        # Key weight matrix
+        self.Wk = self.add_weight(
+            shape=(input_shape[-1], self.d), initializer='glorot_uniform',
+            trainable=True, dtype='float32'
+        )
+        # Value weight matrix
+        self.Wv = self.add_weight(
+            shape=(input_shape[-1], self.d), initializer='glorot_uniform',
+            trainable=True, dtype='float32'
+        )
+
+    def call(self, q_x, k_x, v_x, mask=None):
+
+        q = tf.matmul(q_x,self.Wq) #[None, t, d]
+        k = tf.matmul(k_x,self.Wk) #[None, t, d]
+        v = tf.matmul(v_x,self.Wv) #[None, t, d]
+
+        # Computing the final output
+        dk = tf.cast(tf.shape(k)[-1], tf.float32)
+        scaled_attention_logits = tf.matmul(q, k, transpose_b=True) / tf.math.sqrt(dk)
+
+        # Create a causal mask
+        seq_len = tf.shape(q)[1]
+        causal_mask = tf.linalg.band_part(tf.ones((seq_len, seq_len)), -1, 0)  # lower triangular matrix
+        if mask is not None:
+            mask = tf.cast(mask, dtype=tf.float32)
+            mask = mask[:, tf.newaxis, tf.newaxis, :]  # (batch_size, 1, 1, seq_len)
+            scaled_attention_logits += (mask * -1e9)
+
+        scaled_attention_logits += (causal_mask * -1e9)
+
+        attention_weights = tf.nn.softmax(scaled_attention_logits, axis=-1)  # (batch_size, seq_len_q, seq_len_k)
+
+        output = tf.matmul(attention_weights, v)  # (batch_size, seq_len_q, depth_v)
+
+        return output
+
+
+class TransformerDecoderLayer(tf.keras.layers.Layer):
+    """ The Decoder layer """
+
+    def _init_(self, d, n_heads):
+        super(TransformerDecoderLayer, self)._init_()
+        # Feature dimensionality
+        self.d = d
+
+        # Dimensionality of a head
+        self.d_head = int(d/n_heads)
+
+        # Number of heads
+        self.n_heads = n_heads
+
+        # Actual attention heads
+        self.attn_heads = [SelfAttentionLayer(self.d_head) for i in range(self.n_heads)]
+
+        # Fully connected layers
+        self.fc1_layer = tf.keras.layers.Dense(512, activation='relu')
+        self.fc2_layer = tf.keras.layers.Dense(d)
+
+        self.add_layer = tf.keras.layers.Add()
+        self.norm1_layer = tf.keras.layers.LayerNormalization()
+        self.norm2_layer = tf.keras.layers.LayerNormalization()
+
+
+    def _compute_multihead_output(self, x):
+        """ Computing the multi head attention output"""
+        outputs = [head(x, x, x) for head in self.attn_heads]
+        outputs = tf.concat(outputs, axis=-1)
+        return outputs
+
+    def call(self, x):
+
+
+        # Multi head attention layer output
+        h1 = self._compute_multihead_output(x)
+
+        h1_add = self.add_layer([x, h1])
+        h1_norm = self.norm1_layer(h1_add)
+
+        # Fully connected outputs
+        h2_1 = self.fc1_layer(h1_norm)
+        h2_2 = self.fc2_layer(h2_1)
+
+        h2_add = self.add_layer([h1, h2_2])
+        h2_norm = self.norm2_layer(h2_add)
+
+
+        return h2_norm
+
+
+# Input layer
+caption_input = tf.keras.layers.Input(shape=(None,))
+position_input = tf.keras.layers.Input(shape=(None,))
+d_model = 384
+
+# Token embeddings
+input_embedding = tf.keras.layers.Embedding(len(tokenizer.get_vocab()), d_model, mask_zero=True)
+
+# Position embeddings
+position_embedding = tf.keras.layers.Lambda(
+    lambda x: tf.where(
+        tf.math.mod(tf.repeat(tf.expand_dims(x, axis=-1), d_model, axis=-1), 2)==0,
+        tf.math.sin(
+            #tf.repeat(tf.expand_dims(x, axis=-1), d_model, axis=-1) /
+            tf.expand_dims(x, axis=-1) /
+            10000**(2*tf.reshape(tf.range(d_model, dtype='float32'),[1,1, -1])/d_model)
+        ),
+        tf.math.cos(
+            tf.expand_dims(x, axis=-1) /
+            10000**(2*tf.reshape(tf.range(d_model, dtype='float32'),[1,1, -1])/d_model)
+        )
+    )
+)
+
+# Combined token position embeddings
+embed_out = input_embedding(caption_input) + position_embedding(position_input)
+# Concatenate image caption and token embeddings
+image_caption_embed_out = tf.keras.layers.Concatenate(axis=1)([tf.expand_dims(image_features,axis=1), embed_out])
+
+# Generate hidden representation with Transformer decoder layer
+out = image_caption_embed_out
+for l in range(4):
+    out  = TransformerDecoderLayer(d_model, 64)(out)
+
+# Final prediction layer
+final_out = tf.keras.layers.Dense(n_vocab, activation='softmax')(out)
+
+# Define the final model and compile
+full_model = tf.keras.models.Model(inputs=[image_input, caption_input, position_input], outputs=final_out)
+full_model.compile(loss='sparse_categorical_crossentropy', optimizer='adam', metrics='accuracy')
+full_model.summary()
+import collections
+import math
+
+
+def _get_ngrams(segment, max_order):
+    """Extracts all n-grams upto a given maximum order from an input segment.
+
+      Args:
+        segment: text segment from which n-grams will be extracted.
+        max_order: maximum length in tokens of the n-grams returned by this
+            methods.
+
+      Returns:
+        The Counter containing all n-grams upto max_order in segment
+        with a count of how many times each n-gram occurred.
+    """
+    ngram_counts = collections.Counter()
+    for order in range(1, max_order + 1):
+        for i in range(0, len(segment) - order + 1):
+            ngram = tuple(segment[i:i+order])
+            ngram_counts[ngram] += 1
+    return ngram_counts
+
+
+def compute_bleu(reference_corpus, translation_corpus, max_order=4,
+                 smooth=False):
+    """Computes BLEU score of translated segments against one or more references.
+
+      Args:
+        reference_corpus: list of lists of references for each translation. Each
+            reference should be tokenized into a list of tokens.
+        translation_corpus: list of translations to score. Each translation
+            should be tokenized into a list of tokens.
+        max_order: Maximum n-gram order to use when computing BLEU score.
+        smooth: Whether or not to apply Lin et al. 2004 smoothing.
+
+      Returns:
+        3-Tuple with the BLEU score, n-gram precisions, geometric mean of n-gram
+        precisions and brevity penalty.
+    """
+    matches_by_order = [0] * max_order
+    possible_matches_by_order = [0] * max_order
+    reference_length = 0
+    translation_length = 0
+    for (references, translation) in zip(reference_corpus,
+                                           translation_corpus):
+        reference_length += min(len(r) for r in references)
+        translation_length += len(translation)
+
+        merged_ref_ngram_counts = collections.Counter()
+        for reference in references:
+            merged_ref_ngram_counts |= _get_ngrams(reference, max_order)
+        translation_ngram_counts = _get_ngrams(translation, max_order)
+        overlap = translation_ngram_counts & merged_ref_ngram_counts
+        for ngram in overlap:
+            matches_by_order[len(ngram)-1] += overlap[ngram]
+        for order in range(1, max_order+1):
+            possible_matches = len(translation) - order + 1
+            if possible_matches > 0:
+                possible_matches_by_order[order-1] += possible_matches
+
+        precisions = [0] * max_order
+        for i in range(0, max_order):
+            if smooth:
+                   precisions[i] = ((matches_by_order[i] + 1.) /
+                           (possible_matches_by_order[i] + 1.))
+            else:
+                if possible_matches_by_order[i] > 0:
+                    precisions[i] = (float(matches_by_order[i]) /
+                             possible_matches_by_order[i])
+                else:
+                    precisions[i] = 0.0
+
+        if min(precisions) > 0:
+            p_log_sum = sum((1. / max_order) * math.log(p) for p in precisions)
+            geo_mean = math.exp(p_log_sum)
+        else:
+            geo_mean = 0
+
+        ratio = float(translation_length) / reference_length
+
+        if ratio > 1.0:
+            bp = 1.
+        else:
+            bp = math.exp(1 - 1. / ratio)
+
+        bleu = geo_mean * bp
+
+        return (bleu, precisions, bp, ratio, translation_length, reference_length)
+batch_size=300
+
+train_fraction = 0.6
+valid_fraction = 0.2
+
+tokenizer = generate_tokenizer(
+    train_captions_df, n_vocab=n_vocab
+)
+
+bleu_metric = BLEUMetric(tokenizer=tokenizer)
+
+sampled_validation_captions_df = valid_captions_df.sample(frac=valid_fraction)
+
+for e in range(1):
+    print(f"Epoch: {e+1}")
+
+    train_dataset, _ = generate_tf_dataset(
+        train_captions_df.sample(frac=train_fraction), tokenizer=tokenizer, n_vocab=n_vocab, batch_size=batch_size, training=True
+    )
+    valid_dataset, _ = generate_tf_dataset(
+        sampled_validation_captions_df, tokenizer=tokenizer, n_vocab=n_vocab, batch_size=batch_size, training=False
+    )
+
+    full_model.fit(
+        train_dataset,
+        epochs=1
+    )
+
+    valid_loss, valid_accuracy, valid_bleu = [], [], []
+    for vi, v_batch in enumerate(valid_dataset):
+        print(f"{vi+1} batches processed", end='\r')
+        loss, accuracy = full_model.test_on_batch(v_batch[0], v_batch[1])
+        batch_predicted = full_model(v_batch[0])
+        bleu_score = bleu_metric.calculate_bleu_from_predictions(v_batch[1], batch_predicted)
+        valid_loss.append(loss)
+        valid_accuracy.append(accuracy)
+        valid_bleu.append(bleu_score)
+
+    print(
+        f"\nvalid_loss: {np.mean(valid_loss)} - valid_accuracy: {np.mean(valid_accuracy)} -"
+    )
